@@ -43,8 +43,23 @@ dir_entry dir[DIRENTRIES];
 
 
 int fs_init() {
-  printf("Função não implementada: fs_init\n");
-  return 1;
+  int sector;  
+  char *buffer_Fat = (char *) fat;
+  char *buffer_Dir = (char *) dir;
+
+  for (sector = 0; sector < 32; sector++) // leitura de cada setor no disco
+  {
+    if (!bl_read(sector, buffer_Fat + (sector * CLUSTERSIZE)))
+      return 0;    
+  }
+
+  if (!bl_read(32, buffer_Dir))
+    return 0;
+
+  if (fat[0] != 3 || fat[32] != 4)
+    printf("Disco não formatado\n");
+  
+  return 1;  
 }
 
 int fs_format() {
