@@ -63,8 +63,37 @@ int fs_init() {
 }
 
 int fs_format() {
-  printf("Função não implementada: fs_format\n");
-  return 0;
+  int sector;  
+  char *buffer_Fat = (char *) fat;
+  char *buffer_Dir = (char *) dir;
+  int tamBlocos = bl_size();
+
+  if (tamBlocos < 33) // 33 = 32 (FAT) + 1 (DIR), tam min
+    return 0;
+
+  for (sector = 0; sector < 32; sector++) // blocos de 0 a 31 são FAT = 3
+    fat[sector] = 3;
+
+  fat[32] = 4; // bloco 32 é do diretorio = 4
+  
+  for (sector = 33; sector < tamBlocos; sector++) 
+    fat[sector] = 1;
+
+  for (sector = tamBlocos; sector < FATCLUSTERS; sector++)
+    fat[sector] = 0;
+
+  for (sector = 0; sector < DIRENTRIES; sector++) 
+    dir[sector].used = 0;
+
+  for (sector = 0; sector < 32; sector++){ 
+    if (!bl_write(sector, buffer_Fat + (sector * CLUSTERSIZE)))
+      return 0;
+  }
+
+  if (!bl_write(32, buffer_Dir))
+    return 0;  
+
+  return 1;
 }
 
 int fs_free() {
