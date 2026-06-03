@@ -68,7 +68,34 @@ int fs_create(char* file_name) {
 }
 
 int fs_remove(char *file_name) {
-  printf("Função não implementada: fs_remove\n");
+  for(int i = 0; i < DIRENTRIES; i++){
+    if (dir[i].used && strcmp(dir[i].name, file_name) == 0){// Verifica se o arquivo esta sendo usado e se é o que quero remover
+        // Começo a remoção me oriantando a partir do primeiro bloco
+        unsigned short current_block = dir[i].first_block;
+
+        while(current_block != 2){// Ate chegar no ultimo bloco
+          unsigned short next = fat[current_block];
+          fat[current_block] = 1; // Libero o bloco
+          current_block = next;
+        }
+        fat[current_block] = 1;
+
+        // Limpo os dados antigos
+        dir[i].used = 0;
+        dir[i].name[0] = '\0';
+        dir[i].size = 0;
+        dir[i].first_block = 0;
+      
+        // Grava de volta no disco
+        for (int s = 0; s < 32; s++) {
+          bl_write(s, (char *)&fat[s * (SECTORSIZE / sizeof(unsigned short))]);
+        }
+        bl_write(32, (char *)dir);
+
+        return 1;
+    }
+  }
+  printf("Erro: Arquivo '%s' não encontrado.\n", file_name);
   return 0;
 }
 
