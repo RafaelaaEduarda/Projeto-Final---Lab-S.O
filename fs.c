@@ -63,8 +63,85 @@ int fs_list(char *buffer, int size) {
 }
 
 int fs_create(char* file_name) {
-  printf("Função não implementada: fs_create\n");
-  return 0;
+
+  //tenta inicialiazar o dir
+  if(!fs_init()){
+    return 0;
+  }
+
+  //verifica tamanho do nome do arquivo 
+  if(strlen(file_name)>24){
+    printf("O nome do arquivo é muito grande (maior que 24 caracteres).\n");
+    return 0;
+  }
+
+  //verificar se o arq já existe e se o dir está cheio
+  int livre = -1;
+  int bloco_livre = -1;
+  for (int i = 0; i < DIRENTRIES; i++)
+  {
+    if (dir[i].used == 1){
+      if(strcmp(dir[i].name, file_name) == 0){//verifico se esta usado pq o nome pode ser lixo de memoria
+        printf("Já existe um arquivo com este nome. :/\n");
+        return 0;
+      }
+    }else if(livre == -1){
+      livre = i;
+    }
+    
+  }
+  
+  if (livre == -1){
+    printf("Diretório cheio.");
+    return 0;
+  }
+
+  //verificar fat
+  for (int i = 33; i < bl_size(); i++)
+  {
+    if (fat[i] == 1){
+      bloco_livre = i;
+      break;
+    }
+  }
+  //verificação extra pq nao faz mal
+  if (bloco_livre == -1){
+    printf("Sem espaço livre no disco.\n");
+    return 0;
+  }
+  
+  //se der tudo certo, crio um arquivo no bl livre
+  dir_entry new_archive;
+    //inicializar
+  memset(&new_archive, 0, sizeof(dir_entry));
+    //add dados
+  new_archive.first_block = bloco_livre;
+  strcpy(new_archive.name, file_name);
+  new_archive.size = 0;
+  new_archive.used = 1;
+
+  //grava no dir e fat
+  dir[livre] = new_archive;
+  fat[bloco_livre] = 2;
+
+  //gravar fat e dir
+  char *buffer_Fat = (char *) fat;
+  char *buffer_Dir = (char*) dir;
+
+  for (int sector = 0; sector < 32; sector++)
+  {
+    if (!bl_write(sector, buffer_Fat + (sector * CLUSTERSIZE))){
+      printf("Não foi possível guardar na FAT.");
+      return 0;
+    }
+  }
+
+  if (!bl_write(32, buffer_Dir)){
+    printf("Não foi possível guardar no diretório.");
+    return 0;
+  }
+
+  return 1;
 }
 
 int fs_remove(char *file_name) {
