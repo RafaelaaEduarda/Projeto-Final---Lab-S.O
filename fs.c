@@ -115,9 +115,15 @@ int fs_open(char *file_name, int mode) {
   return -1;
 }
 
-int fs_close(int file)  {
-  printf("Função não implementada: fs_close\n");
-  return 0;
+int fs_close(int file) {
+  //  Verifica se o número do arquivo existe e se ele está realmente aberto
+  if (file < 0 || file >= MAXOPENFILES || openfiles[file].used == 0) {
+    printf("Erro: identificador de arquivo invalido ou arquivo ja esta fechado (%d)\n", file); 
+    return 0; // 0 significa ERRO
+  }
+  openfiles[file].used = 0;
+
+  return 1;
 }
 
 int fs_write(char *buffer, int size, int file) {
