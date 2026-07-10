@@ -1,0 +1,44 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-g",
+      "-c",
+      "-o",
+      "disk.o",
+      "disk.c"
+    ],
+    "directory": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O",
+    "file": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/disk.c",
+    "output": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/disk.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-g",
+      "-c",
+      "-o",
+      "shell.o",
+      "shell.c"
+    ],
+    "directory": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O",
+    "file": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/shell.c",
+    "output": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/shell.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-g",
+      "-c",
+      "-o",
+      "fs.o",
+      "fs.c"
+    ],
+    "directory": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O",
+    "file": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/fs.c",
+    "output": "/home/lealdavi/Documentos/LABSO/Projeto-Final---Lab-S.O/fs.o"
+  }
+]
