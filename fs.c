@@ -29,6 +29,7 @@
 #define CLUSTERSIZE 4096
 #define FATCLUSTERS 65536
 #define DIRENTRIES 128
+#define MAXOPENFILES 10
 
 unsigned short fat[FATCLUSTERS];
 
@@ -40,6 +41,16 @@ typedef struct {
 } dir_entry;
 
 dir_entry dir[DIRENTRIES];
+
+typedef struct {
+  int used;
+  int dir_index;
+  int mode;
+  int current_cluster;
+  int cluster_offset;
+} open_file_entry;
+
+open_file_entry openfiles[MAXOPENFILES];
 
 int fs_init() {
   int sector;
@@ -92,6 +103,10 @@ int fs_format() {
 
   if (!bl_write(32, buffer_Dir))
     return 0;
+
+  for (int i = 0; i < MAXOPENFILES; i++) {
+    openfiles[i].used = 0;
+  }
 
   return 1;
 }
@@ -171,6 +186,11 @@ int fs_create(char* file_name) {
     return 0;
   }
 
+  // tenta inicialiazar o dir
+  if (!fs_init()) {
+    return 0;
+  }
+
   // verifica tamanho do nome do arquivo
   if (strlen(file_name) > 24) {
     printf("O nome do arquivo é muito grande (maior que 24 caracteres).\n");
@@ -192,7 +212,7 @@ int fs_create(char* file_name) {
   }
 
   if (livre == -1) {
-    printf("Diretório cheio.");
+    printf("Diretório cheio.\n");
     return 0;
   }
 
@@ -229,13 +249,14 @@ int fs_create(char* file_name) {
 
   for (int sector = 0; sector < 32; sector++) {
     if (!bl_write(sector, buffer_Fat + (sector * CLUSTERSIZE))) {
-      printf("Não foi possível guardar na FAT.");
+
+      printf("Não foi possível guardar na FAT.\n");
       return 0;
     }
   }
 
   if (!bl_write(32, buffer_Dir)) {
-    printf("Não foi possível guardar no diretório.");
+    printf("Não foi possível guardar no diretório.\n");
     return 0;
   }
 
@@ -248,13 +269,25 @@ int fs_remove(char* file_name) {
     printf("disco não formatado\n");
     return 0;
   }
+  open_file_entry of = openfiles[0];
+  int tamanho_of = sizeof(openfiles) / sizeof(of);
+  for (int i = 0; i < tamanho_of; i++) {
+    of = openfiles[i];
+    if (of.used == 1) {
+      dir_entry d = dir[of.dir_index];
+      if (!strcmp(file_name, d.name)) {
+        printf("Erro: o arquivo está aberto, feche-o antes de remover!\n");
+        return 0;
+      }
+    }
+  }
 
   for (int i = 0; i < DIRENTRIES; i++) {
     if (dir[i].used && strcmp(dir[i].name, file_name) == 0) { // Verifica se o arquivo esta sendo usado e se é o que quero remover
       // Começo a remoção me oriantando a partir do primeiro bloco
       unsigned short current_block = dir[i].first_block;
 
-      while (current_block >= 33 && current_block < bl_size() && current_block != 2) { // Ate chegar no ultimo bloco
+      while (current_block >= 33 && current_block < bl_size()) { // Ate chegar no ultimo bloco
         unsigned short next = fat[current_block];
         fat[current_block] = 1; // Libero o bloco
         current_block = next;
@@ -280,18 +313,183 @@ int fs_remove(char* file_name) {
 }
 
 int fs_open(char* file_name, int mode) {
-  printf("Função não implementada: fs_open\n");
+
+  // verificar init do dir
+  if (!fs_init()) {
+    return -1;
+  }
+
+  // verificar se o modo eh valido
+  if (mode != FS_R && mode != FS_W) {
+    printf("Modo inválido de abertura.\n");
+    return -1;
+  }
+
+  // verificar se há espaço para abrir o arquivo
+  int livre = -1;
+  for (int i = 0; i < MAXOPENFILES; i++) {
+    if (openfiles[i].used == 0) {
+      livre = i;
+      break;
+    }
+  }
+
+  if (livre == -1) {
+    printf("Não há espaço para abrir novos arquivos.\n");
+    return -1;
+  }
+
+  if (mode == FS_R) { // se for FS_R
+
+    // procurar arquivo
+    for (int i = 0; i < DIRENTRIES; i++) {
+      if (dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0) {
+        openfiles[livre].used = 1;
+        openfiles[livre].dir_index = i;
+        openfiles[livre].mode = FS_R;
+        openfiles[livre].current_cluster = dir[i].first_block;
+        openfiles[livre].cluster_offset = 0;
+        return livre;
+      }
+    }
+    // percorreu tudo e n achou
+    printf("Arquivo não encontrado.\n");
+    return -1;
+
+  } else if (mode == FS_W) { // se for FS_W
+
+    // procurar arquivo
+    for (int i = 0; i < DIRENTRIES; i++) {
+      if (dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0) { // se achar
+        if (!fs_remove(file_name)) return -1;                        // remover
+        break;
+      }
+    }
+    if (!fs_create(file_name)) return -1; // criar novo
+
+    // procurar o novo arquivo
+    for (int i = 0; i < DIRENTRIES; i++) {
+      if (dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0) {
+        openfiles[livre].used = 1;
+        openfiles[livre].dir_index = i;
+        openfiles[livre].mode = FS_W;
+        openfiles[livre].current_cluster = dir[i].first_block;
+        openfiles[livre].cluster_offset = 0;
+        return livre;
+      }
+    }
+
+    // percorreu tudo e n achou
+    printf("Arquivo não encontrado.\n");
+    return -1;
+  }
+
   return -1;
 }
 
 int fs_close(int file) {
-  printf("Função não implementada: fs_close\n");
-  return 0;
+  //  Verifica se o número do arquivo existe e se ele está realmente aberto
+  if (file < 0 || file >= MAXOPENFILES || openfiles[file].used == 0) {
+    printf("Erro: identificador de arquivo invalido ou arquivo ja esta fechado (%d)\n", file);
+    return 0; // 0 significa ERRO
+  }
+  openfiles[file].used = 0;
+
+  return 1;
 }
 
 int fs_write(char* buffer, int size, int file) {
-  printf("Função não implementada: fs_write\n");
-  return -1;
+  int i;
+  int escrito = 0;
+  char buf_temp[4096];
+
+  // Verifica se o arquivo é válido e está aberto para escrita
+  if (file < 0 || file >= MAXOPENFILES || openfiles[file].used == 0) {
+    printf("Erro: arquivo fechado ou invalido\n");
+    return -1;
+  }
+  if (openfiles[file].mode != FS_W) { // 1 = FS_W
+    printf("Erro: arquivo nao ta aberto para escrita\n");
+    return -1;
+  }
+  if (size <= 0) {
+    return 0;
+  }
+
+  int id_dir = openfiles[file].dir_index;
+
+  // Loop para escrever os dados aos poucos
+  while (escrito < size) {
+
+    // Se o arquivo é novo ou o bloco de 4096 bytes já encheu
+    if (openfiles[file].current_cluster == -1 || openfiles[file].cluster_offset == 4096) {
+
+      // Procura um bloco livre na FAT
+      int novo_bloco = -1;
+      for (i = 33; i < 65536; i++) {
+        if (fat[i] == 1) {
+          novo_bloco = i;
+          break;
+        }
+      }
+
+      if (novo_bloco == -1) {
+        printf("Erro: disco cheio!\n");
+        break; // Sai do loop se não tiver espaço
+      }
+
+      // Atualiza a FAT
+      if (openfiles[file].current_cluster == -1) {
+        dir[id_dir].first_block = novo_bloco; // Primeiro bloco do arquivo
+      } else {
+        fat[openfiles[file].current_cluster] = novo_bloco; // Liga o bloco velho ao novo
+      }
+
+      fat[novo_bloco] = 2;
+
+      // Atualiza o arquivo aberto
+      openfiles[file].current_cluster = novo_bloco;
+      openfiles[file].cluster_offset = 0;
+    }
+
+    // Le o que já está no disco para o buffer temporario para não apagar coisas sem querer
+    bl_read(openfiles[file].current_cluster, buf_temp);
+
+    // Calcula quanto espaço tem e quanto ainda falta escrever
+    int espaco = 4096 - openfiles[file].cluster_offset;
+    int falta = size - escrito;
+    int copiar;
+
+    if (falta < espaco) {
+      copiar = falta;
+    } else {
+      copiar = espaco;
+    }
+
+    // Copia os dados do buffer do utilizador para o nosso buffer
+    memcpy(buf_temp + openfiles[file].cluster_offset, buffer + escrito, copiar);
+
+    // Grava o bloco modificado de volta no disco
+    bl_write(openfiles[file].current_cluster, buf_temp);
+
+    // Avança os contadores
+    openfiles[file].cluster_offset += copiar;
+    escrito += copiar;
+  }
+
+  // Atualiza o tamanho do arquivo no diretorio somando o que foi escrito
+  dir[id_dir].size += escrito;
+
+  // Salva os 32 blocos da FAT
+  char* p_fat = (char*)fat;
+  for (i = 0; i < 32; i++) {
+    bl_write(i, p_fat + (i * 4096));
+  }
+
+  // Salva o bloco 32 que é o Diretorio
+  bl_write(32, (char*)dir);
+
+  return escrito; // Retorna o total de bytes que conseguiu escrever
 }
 
 int fs_read(char* buffer, int size, int file) {
@@ -299,4 +497,79 @@ int fs_read(char* buffer, int size, int file) {
     printf("disco não formatado\n");
     return -1;
   }
+
+  if (file < 0 || file >= MAXOPENFILES || openfiles[file].used == 0) {
+    printf("Erro: arquivo fechado ou invalido\n");
+    return -1;
+  }
+
+  open_file_entry* of = &openfiles[file];
+  dir_entry* de = &dir[of->dir_index];
+
+  if (of->mode != FS_R) {
+    printf("Erro: o arquivo não está aberto para leitura!\n");
+    return -1;
+  }
+
+  if (size == 0) {
+    return 0;
+  }
+
+  int current_pos = 0;
+  int block = de->first_block;
+  while (block != of->current_cluster && block != 2) {
+    current_pos += CLUSTERSIZE;
+    block = fat[block];
+    if (block < 33 || block >= bl_size()) {
+      printf("Erro: bloco corrompido!\n");
+      return -1;
+    }
+  }
+
+  if (block == of->current_cluster) {
+    current_pos += of->cluster_offset;
+  } else {
+    current_pos = 0;
+  }
+
+  int bytes_lidos = 0;
+
+  while (bytes_lidos < size && current_pos < de->size) {
+    int disponivel_bloco = CLUSTERSIZE - of->cluster_offset;
+    int restante_arquivo = de->size - current_pos;
+    int a_ler = size - bytes_lidos;
+
+    if (disponivel_bloco < a_ler) a_ler = disponivel_bloco;
+    if (restante_arquivo < a_ler) a_ler = restante_arquivo;
+
+    if (a_ler <= 0) break;
+
+    char temp[CLUSTERSIZE];
+    if (!bl_read(of->current_cluster, temp)) {
+      printf("Erro ao ler bloco do disco\n");
+      return -1;
+    }
+
+    memcpy(buffer + bytes_lidos, temp + of->cluster_offset, a_ler);
+
+    bytes_lidos += a_ler;
+    current_pos += a_ler;
+    of->cluster_offset += a_ler;
+
+    if (of->cluster_offset == CLUSTERSIZE) {
+      unsigned short next = fat[of->current_cluster];
+      if (next == 2) {
+        of->cluster_offset = CLUSTERSIZE;
+        break;
+      } else if (next >= 33 && next < bl_size()) {
+        of->current_cluster = next;
+        of->cluster_offset = 0;
+      } else {
+        printf("Erro: próximo bloco inválido na FAT\n");
+        return -1;
+      }
+    }
+  }
+
+  return bytes_lidos;
 }
