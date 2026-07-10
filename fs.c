@@ -29,6 +29,7 @@
 #define CLUSTERSIZE 4096
 #define FATCLUSTERS 65536
 #define DIRENTRIES 128
+#define MAXOPENFILES 10
 
 unsigned short fat[FATCLUSTERS];
 
@@ -40,6 +41,16 @@ typedef struct {
 } dir_entry;
 
 dir_entry dir[DIRENTRIES];
+
+typedef struct {
+  int used;           // used = 1 ou 0 (nao usado) 
+  int dir_index;       
+  int mode;           //para FS_W = 1, para FS_R = 0
+  int current_cluster;  
+  int cluster_offset;
+} open_file_entry;
+
+open_file_entry openfiles[MAXOPENFILES];
 
 
 int fs_init() {
@@ -150,7 +161,82 @@ int fs_remove(char *file_name) {
 }
 
 int fs_open(char *file_name, int mode) {
-  printf("Função não implementada: fs_open\n");
+  
+  //verificar init do dir
+  if(!fs_init()){
+    return -1;
+  }
+
+  //verificar se o modo eh valido
+  if (mode != FS_R && mode != FS_W)
+  {
+    printf("Modo inválido de abertura.\n");
+    return -1;
+  }
+
+  //verificar se há espaço para abrir o arquivo
+  int livre = -1;
+  for(int i = 0; i < MAXOPENFILES; i++){
+    if(openfiles[i].used == 0){
+      livre = i;
+      break;
+
+    }
+  }
+
+  if(livre == -1){
+    printf("Não há espaço para abrir novos arquivos.\n");
+    return -1;
+  }
+
+  if(mode == FS_R){//se for FS_R
+
+    //procurar arquivo
+    for (int i = 0; i < DIRENTRIES; i++)
+    {
+      if(dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0){
+        openfiles[livre].used = 1;
+        openfiles[livre].dir_index = i;
+        openfiles[livre].mode = FS_R;
+        openfiles[livre].current_cluster = dir[i].first_block;
+        openfiles[livre].cluster_offset = 0;
+        return livre;
+      }
+    }
+    //percorreu tudo e n achou
+    printf("Arquivo não encontrado.\n");
+    return -1;
+    
+  }else if (mode == FS_W){//se for FS_W
+    
+    //procurar arquivo
+    for (int i = 0; i < DIRENTRIES; i++){
+      if(dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0){//se achar
+        if(!fs_remove(file_name))return -1;//remover
+        break;
+      }
+    }
+    if(!fs_create(file_name))return -1;//criar novo
+    
+    //procurar o novo arquivo
+    for (int i = 0; i < DIRENTRIES; i++)
+    {
+      if(dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0){
+        openfiles[livre].used = 1;
+        openfiles[livre].dir_index = i;
+        openfiles[livre].mode = FS_W;
+        openfiles[livre].current_cluster = dir[i].first_block;
+        openfiles[livre].cluster_offset = 0;
+        return livre;
+
+      }
+    }
+
+    //percorreu tudo e n achou
+    printf("Arquivo não encontrado.\n");
+    return -1;
+  }
+
   return -1;
 }
 
